@@ -1,0 +1,81 @@
+--- a/LibCarla/source/carla/multigpu/listener.cpp
++++ b/LibCarla/source/carla/multigpu/listener.cpp
+@@ -53,9 +53,9 @@
+     }
+   };
+ 
+-    _acceptor.async_accept(session->_socket, [=](error_code ec) {
++    _acceptor.async_accept(session->_socket, [=, this](error_code ec) {
+       // Handle query and open a new session immediately.
+-      boost::asio::post(_io_context, [=]() { handle_query(ec); });
++      boost::asio::post(_io_context, [=, this]() { handle_query(ec); });
+       OpenSession(timeout, on_opened, on_closed, on_response);
+     });
+   }
+--- a/LibCarla/source/carla/multigpu/listener.h
++++ b/LibCarla/source/carla/multigpu/listener.h
+@@ -51,7 +51,7 @@
+     void Listen(callback_function_type on_session_opened, 
+                 callback_function_type on_session_closed,
+                 callback_function_type_response on_response) {
+-      boost::asio::post(_io_context, [=]() {
++      boost::asio::post(_io_context, [=, this]() {
+         OpenSession(
+             _timeout,
+             std::move(on_session_opened),
+--- a/LibCarla/source/carla/streaming/detail/tcp/Client.cpp
++++ b/LibCarla/source/carla/streaming/detail/tcp/Client.cpp
+@@ -114,7 +114,7 @@
+           boost::asio::async_write(
+               _socket,
+               boost::asio::buffer(&stream_id, sizeof(stream_id)),
+-              boost::asio::bind_executor(_strand, [=](error_code ec, size_t DEBUG_ONLY(bytes)) {
++              boost::asio::bind_executor(_strand, [=, this](error_code ec, size_t DEBUG_ONLY(bytes)) {
+                 // Ensures to stop the execution once the connection has been stopped.
+                 if (_done) {
+                   return;
+--- a/LibCarla/source/carla/streaming/detail/tcp/Server.cpp
++++ b/LibCarla/source/carla/streaming/detail/tcp/Server.cpp
+@@ -39,9 +39,9 @@
+       }
+     };
+ 
+-    _acceptor.async_accept(session->_socket, [=](error_code ec) {
++    _acceptor.async_accept(session->_socket, [=, this](error_code ec) {
+       // Handle query and open a new session immediately.
+-      boost::asio::post(_io_context, [=]() { handle_query(ec); });
++      boost::asio::post(_io_context, [=, this]() { handle_query(ec); });
+       OpenSession(timeout, on_opened, on_closed);
+     });
+   }
+--- a/LibCarla/source/carla/streaming/detail/tcp/Server.h
++++ b/LibCarla/source/carla/streaming/detail/tcp/Server.h
+@@ -46,7 +46,7 @@
+     /// is closed.
+     template <typename FunctorT1, typename FunctorT2>
+     void Listen(FunctorT1 on_session_opened, FunctorT2 on_session_closed) {
+-      boost::asio::post(_io_context, [=]() {
++      boost::asio::post(_io_context, [=, this]() {
+         OpenSession(
+             _timeout,
+             std::move(on_session_opened),
+--- a/LibCarla/source/carla/streaming/detail/tcp/ServerSession.cpp
++++ b/LibCarla/source/carla/streaming/detail/tcp/ServerSession.cpp
+@@ -51,7 +51,7 @@
+ 
+     StartTimer();
+     auto self = shared_from_this(); // To keep myself alive.
+-    boost::asio::post(_strand, [=]() {
++    boost::asio::post(_strand, [=, this]() {
+ 
+       auto handle_query = [this, self, callback=std::move(on_opened)](
+           const boost::system::error_code &ec,
+@@ -59,7 +59,7 @@
+         if (!ec) {
+           DEBUG_ASSERT_EQ(bytes_received, sizeof(_stream_id));
+           log_debug("session", _session_id, "for stream", _stream_id, " started");
+-          boost::asio::post(_strand.context(), [=]() { callback(self); });
++          boost::asio::post(_strand.context(), [=, this]() { callback(self); });
+         } else {
+           log_error("session", _session_id, ": error retrieving stream id :", ec.message());
+           CloseNow(ec);

@@ -1,0 +1,11 @@
+--- a/LibCarla/source/carla/geom/Location.h
++++ b/LibCarla/source/carla/geom/Location.h
+@@ -78,7 +78,7 @@
+     // =========================================================================
+ 
+     bool operator==(const Location &rhs) const {
+-      return static_cast<const Vector3D &>(*this) == rhs;
++      return static_cast<const Vector3D &>(*this) == static_cast<const Vector3D &>(rhs);
+     }
+ 
+     bool operator!=(const Location &rhs) const {

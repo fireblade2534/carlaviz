@@ -1,0 +1,5 @@
+# only contains patches
+patches:
+- patch_file: "patches/001_fix_location_equal.patch"
+- patch_file: "patches/002_fix_lambda_cxx20.patch"
+- patch_file: "patches/003_fix_result_of_cxx20.patch"

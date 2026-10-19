@@ -1,0 +1,491 @@
+diff --git a/backend/conanfile.py b/backend/conanfile.py
+index 1ca5a4e..1d28b62 100644
+--- a/backend/conanfile.py
++++ b/backend/conanfile.py
+@@ -55,7 +55,7 @@ class CarlaViz(ConanFile):
+         self.requires("spdlog/1.12.0")
+         self.requires("fmt/9.1.0")
+         if self.options.simulator == "carla":
+-            self.requires("carla/0.9.15")
++            self.requires("carla/0.9.16")
+         if self.options.frontend == "xviz":
+             self.requires("xviz/0.5.1")
+             # require GeoJson
+diff --git a/Dockerfile.carla0916 b/Dockerfile.carla0916
+new file mode 100644
+index 0000000..3f51860
+--- /dev/null
++++ b/Dockerfile.carla0916
+@@ -0,0 +1,23 @@
++FROM ubuntu:22.04 AS backend
++
++RUN apt-get update && apt-get install -y --no-install-recommends \
++    ca-certificates git make g++-11 python3-pip cmake \
++    && rm -rf /var/lib/apt/lists/*
++RUN pip3 install --no-cache-dir conan==1.66.0
++RUN conan remote add gitlab https://gitlab.com/api/v4/projects/44861904/packages/conan
++
++COPY misc/cicd/conan/gcc11 /home/carlaviz/profiles/gcc11
++COPY misc/conan/carla0916 /home/carlaviz/carla0916
++RUN conan create /home/carlaviz/carla0916 \
++    -pr /home/carlaviz/profiles/gcc11 -s build_type=Release --build=missing
++
++COPY backend /home/carlaviz/backend
++WORKDIR /home/carlaviz/backend/build
++RUN conan install -pr /home/carlaviz/profiles/gcc11 \
++    --build=missing -s build_type=Release ..
++RUN conan build ..
++
++# Reuse the published frontend and replace its C++ backend with the matching one.
++FROM mjxu96/carlaviz:0.9.15
++COPY --from=backend /home/carlaviz/backend/build/Release/src/backend \
++    /home/carlaviz/backend/bin/backend
+diff --git a/misc/conan/carla0916/CMakeLists.txt b/misc/conan/carla0916/CMakeLists.txt
+new file mode 100644
+index 0000000..7609d9f
+--- /dev/null
++++ b/misc/conan/carla0916/CMakeLists.txt
+@@ -0,0 +1,25 @@
++cmake_minimum_required(VERSION 3.14)
++
++if(NOT CARLA_VERSION)
++  set(CARLA_VERSION "0.9.14")
++endif()
++
++project(
++  carla
++  VERSION ${CARLA_VERSION}
++  DESCRIPTION "libcarla"
++  LANGUAGES CXX)
++
++option(CARLA_BUILD_CLIENT "Build carla client library" ON)
++option(CARLA_BUILD_SERVER "Build carla client library" OFF)
++
++set(CMAKE_CXX_STANDARD 20)
++
++set(CARLA_SOURCE_FOLDER ${CMAKE_CURRENT_SOURCE_DIR}/LibCarla/source)
++
++add_subdirectory("cmake/src")
++
++if(CARLA_BUILD_TESTS)
++  enable_testing()
++  add_subdirectory("cmake/tests")
++endif()
+diff --git a/misc/conan/carla0916/cmake/carlaConfig.cmake.in b/misc/conan/carla0916/cmake/carlaConfig.cmake.in
+new file mode 100644
+index 0000000..ee538c7
+--- /dev/null
++++ b/misc/conan/carla0916/cmake/carlaConfig.cmake.in
+@@ -0,0 +1,11 @@
++@PACKAGE_INIT@
++
++include(CMakeFindDependencyMacro)
++
++find_dependency(Boost REQUIRED)
++find_dependency(recastnavigation REQUIRED)
++find_dependency(rpclib REQUIRED)
++find_dependency(PNG REQUIRED)
++
++include("${CMAKE_CURRENT_LIST_DIR}/carlaTargets.cmake")
++check_required_components("@PROJECT_NAME@")
+diff --git a/misc/conan/carla0916/cmake/src/CMakeLists.txt b/misc/conan/carla0916/cmake/src/CMakeLists.txt
+new file mode 100644
+index 0000000..d61b698
+--- /dev/null
++++ b/misc/conan/carla0916/cmake/src/CMakeLists.txt
+@@ -0,0 +1,5 @@
++
++
++if (CARLA_BUILD_CLIENT)
++    add_subdirectory("client")
++endif()
+diff --git a/misc/conan/carla0916/cmake/src/client/CMakeLists.txt b/misc/conan/carla0916/cmake/src/client/CMakeLists.txt
+new file mode 100644
+index 0000000..8200c55
+--- /dev/null
++++ b/misc/conan/carla0916/cmake/src/client/CMakeLists.txt
+@@ -0,0 +1,109 @@
++
++message(STATUS "Building carla client library")
++
++find_package(Boost REQUIRED)
++find_package(recastnavigation REQUIRED)
++find_package(rpclib REQUIRED)
++find_package(PNG REQUIRED)
++
++if (WIN32)
++  find_package(ZLIB REQUIRED)
++endif()
++
++file(GLOB carla_client_sources
++  ${CARLA_SOURCE_FOLDER}/carla/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/client/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/client/detail/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/geom/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/image/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/nav/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/opendrive/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/opendrive/parser/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/pointcloud/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/road/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/road/element/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/road/general/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/road/object/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/road/signal/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/rpc/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/sensor/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/sensor/data/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/sensor/s11n/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/streaming/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/streaming/detail/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/streaming/detail/tcp/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/streaming/low_level/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/multigpu/*.cpp
++  ${CARLA_SOURCE_FOLDER}/carla/trafficmanager/*.cpp
++)
++
++file(GLOB carla_thirdparty_sources
++  ${CARLA_SOURCE_FOLDER}/third-party/odrSpiral/*.cpp
++  ${CARLA_SOURCE_FOLDER}/third-party/pugixml/*.cpp
++)
++
++add_library(client
++  ${carla_client_sources}
++  ${carla_thirdparty_sources}
++)
++
++add_library(carla::client ALIAS client)
++
++target_link_libraries(client
++  boost::boost
++  recastnavigation::recastnavigation
++  rpclib::rpc
++  PNG::PNG
++)
++
++if (WIN32)
++  target_link_libraries(client
++    ZLIB::ZLIB
++    shlwapi.lib
++  )
++endif()
++
++message(STATUS ${CARLA_SOURCE_FOLDER})
++
++target_include_directories(
++  client PUBLIC
++      "$<BUILD_INTERFACE:${CARLA_SOURCE_FOLDER};${CARLA_SOURCE_FOLDER}/third-party>"
++              $<INSTALL_INTERFACE:include>)
++
++
++include(GNUInstallDirs)
++install(
++  TARGETS client
++  EXPORT carlaTargets
++  INCLUDES
++  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
++  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
++  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
++  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
++
++# headers
++install(DIRECTORY ${CARLA_SOURCE_FOLDER}/carla
++        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
++install(DIRECTORY ${CARLA_SOURCE_FOLDER}/third-party/
++        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
++
++install(
++  EXPORT carlaTargets
++  FILE carlaTargets.cmake
++  NAMESPACE carla::
++  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME})
++
++include(CMakePackageConfigHelpers)
++write_basic_package_version_file(
++  "${CMAKE_CURRENT_BINARY_DIR}/carlaConfigVersion.cmake"
++  VERSION ${carla_VERSION}
++  COMPATIBILITY AnyNewerVersion)
++
++configure_package_config_file(
++  ${CMAKE_SOURCE_DIR}/cmake/carlaConfig.cmake.in
++  ${CMAKE_CURRENT_BINARY_DIR}/carlaConfig.cmake
++  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME})
++
++install(FILES "${CMAKE_CURRENT_BINARY_DIR}/carlaConfig.cmake"
++              "${CMAKE_CURRENT_BINARY_DIR}/carlaConfigVersion.cmake"
++        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME})
+diff --git a/misc/conan/carla0916/conandata.yml b/misc/conan/carla0916/conandata.yml
+new file mode 100644
+index 0000000..f163db7
+--- /dev/null
++++ b/misc/conan/carla0916/conandata.yml
+@@ -0,0 +1,5 @@
++# only contains patches
++patches:
++- patch_file: "patches/001_fix_location_equal.patch"
++- patch_file: "patches/002_fix_lambda_cxx20.patch"
++- patch_file: "patches/003_fix_result_of_cxx20.patch"
+\ No newline at end of file
+diff --git a/misc/conan/carla0916/conanfile.py b/misc/conan/carla0916/conanfile.py
+new file mode 100644
+index 0000000..7e2493a
+--- /dev/null
++++ b/misc/conan/carla0916/conanfile.py
+@@ -0,0 +1,136 @@
++from conans import ConanFile
++from conan.tools.cmake import CMakeToolchain, CMakeDeps, CMake, cmake_layout
++from conan.tools.files import (
++    apply_conandata_patches,
++    rename,
++    replace_in_file,
++    export_conandata_patches,
++)
++import os
++import shutil
++import subprocess
++
++
++class Carla(ConanFile):
++    name = "carla"
++
++    # Binary configuration
++    settings = "os", "compiler", "build_type", "arch"
++    options = {
++        "shared": [True, False],
++        "fPIC": [True, False],
++        "build_tests": [True, False],
++        "with_client": [True, False],
++    }
++    default_options = {
++        "shared": False,
++        "fPIC": True,
++        "build_tests": False,
++        "with_client": True,
++    }
++
++    # Sources are located in the same place as this recipe, copy them to the recipe
++    exports_sources = (
++        "cmake/*",
++        "CMakeLists.txt",
++    )
++
++    carla_version = "0.9.16"
++
++    def _configure_cmake(self) -> CMake:
++        cmake = CMake(self)
++        variables = {"CARLA_VERSION": self.carla_version}
++        if self.options.with_client:
++            variables["CARLA_BUILD_CLIENT"] = "ON"
++        cmake.configure(variables=variables)
++        return cmake
++
++    def _do_version_replace(self):
++        # rename version file
++        rename(
++            self,
++            os.path.join(
++                self.source_folder, "LibCarla", "source", "carla", "Version.h.in"
++            ),
++            os.path.join(
++                self.source_folder, "LibCarla", "source", "carla", "Version.h"
++            ),
++        )
++        replace_in_file(
++            self,
++            os.path.join(
++                self.source_folder, "LibCarla", "source", "carla", "Version.h"
++            ),
++            "${CARLA_VERSION}",
++            f"{self.carla_version}",
++        )
++
++    def set_version(self):
++        self.version = self.carla_version
++
++    def requirements(self):
++        self.requires("boost/1.84.0")
++        self.requires("recastnavigation/carla_0.9.15")
++        self.requires("rpclib/2.3.0")
++        self.requires("libpng/1.6.37")
++        if self.settings.os == "Windows":
++            self.requires("zlib/1.2.13")
++        if self.options.build_tests:
++            self.requires("gtest/cci.20210126")
++
++    def config_options(self):
++        if self.settings.os == "Windows":
++            del self.options.fPIC
++
++    def layout(self):
++        cmake_layout(self)
++
++    def source(self):
++        # Sparse checkout avoids downloading CARLA's large documentation assets.
++        upstream = os.path.join(self.source_folder, "_upstream")
++        subprocess.run([
++            "git", "clone", "--depth=1", "--filter=blob:none", "--sparse",
++            "--branch", self.carla_version,
++            "https://github.com/carla-simulator/carla.git", upstream,
++        ], check=True)
++        revision = subprocess.check_output(
++            ["git", "-C", upstream, "rev-parse", "HEAD"], text=True
++        ).strip()
++        if revision != "294096eb1c38eabf246e4f3a9cdab704e33a7f4c":
++            raise RuntimeError("Unexpected CARLA 0.9.16 source revision: " + revision)
++        subprocess.run([
++            "git", "-C", upstream, "sparse-checkout", "set", "LibCarla"
++        ], check=True)
++        shutil.move(os.path.join(upstream, "LibCarla"), self.source_folder)
++        shutil.rmtree(upstream)
++
++    def export_sources(self):
++        export_conandata_patches(self)
++
++    def generate(self):
++        dp = CMakeDeps(self)
++        dp.generate()
++        tc = CMakeToolchain(self)
++        tc.generate()
++
++    def build(self):
++        apply_conandata_patches(self)
++        self._do_version_replace()
++        cmake = self._configure_cmake()
++        if self.should_build or self.should_test:
++            cmake.build()
++        if self.options.build_tests and self.should_test:
++            if self.settings.os == "Windows":
++                cmake.test()
++            else:
++                cmake.test(cli_args=["ARGS=-V"])
++
++    def package(self):
++        cmake = CMake(self)
++        cmake.install()
++
++    def package_info(self):
++        self.cpp_info.libs = ["carla"]
++        # We will use our installed cmake files
++        self.cpp_info.set_property("cmake_find_mode", "none")
++        self.cpp_info.builddirs.append(os.path.join("lib", "cmake", "carla"))
+diff --git a/misc/conan/carla0916/patches/001_fix_location_equal.patch b/misc/conan/carla0916/patches/001_fix_location_equal.patch
+new file mode 100644
+index 0000000..bf97e41
+--- /dev/null
++++ b/misc/conan/carla0916/patches/001_fix_location_equal.patch
+@@ -0,0 +1,11 @@
++--- a/LibCarla/source/carla/geom/Location.h
+++++ b/LibCarla/source/carla/geom/Location.h
++@@ -78,7 +78,7 @@
++     // =========================================================================
++ 
++     bool operator==(const Location &rhs) const {
++-      return static_cast<const Vector3D &>(*this) == rhs;
+++      return static_cast<const Vector3D &>(*this) == static_cast<const Vector3D &>(rhs);
++     }
++ 
++     bool operator!=(const Location &rhs) const {
+diff --git a/misc/conan/carla0916/patches/002_fix_lambda_cxx20.patch b/misc/conan/carla0916/patches/002_fix_lambda_cxx20.patch
+new file mode 100644
+index 0000000..2744612
+--- /dev/null
++++ b/misc/conan/carla0916/patches/002_fix_lambda_cxx20.patch
+@@ -0,0 +1,81 @@
++--- a/LibCarla/source/carla/multigpu/listener.cpp
+++++ b/LibCarla/source/carla/multigpu/listener.cpp
++@@ -53,9 +53,9 @@
++     }
++   };
++ 
++-    _acceptor.async_accept(session->_socket, [=](error_code ec) {
+++    _acceptor.async_accept(session->_socket, [=, this](error_code ec) {
++       // Handle query and open a new session immediately.
++-      boost::asio::post(_io_context, [=]() { handle_query(ec); });
+++      boost::asio::post(_io_context, [=, this]() { handle_query(ec); });
++       OpenSession(timeout, on_opened, on_closed, on_response);
++     });
++   }
++--- a/LibCarla/source/carla/multigpu/listener.h
+++++ b/LibCarla/source/carla/multigpu/listener.h
++@@ -51,7 +51,7 @@
++     void Listen(callback_function_type on_session_opened, 
++                 callback_function_type on_session_closed,
++                 callback_function_type_response on_response) {
++-      boost::asio::post(_io_context, [=]() {
+++      boost::asio::post(_io_context, [=, this]() {
++         OpenSession(
++             _timeout,
++             std::move(on_session_opened),
++--- a/LibCarla/source/carla/streaming/detail/tcp/Client.cpp
+++++ b/LibCarla/source/carla/streaming/detail/tcp/Client.cpp
++@@ -114,7 +114,7 @@
++           boost::asio::async_write(
++               _socket,
++               boost::asio::buffer(&stream_id, sizeof(stream_id)),
++-              boost::asio::bind_executor(_strand, [=](error_code ec, size_t DEBUG_ONLY(bytes)) {
+++              boost::asio::bind_executor(_strand, [=, this](error_code ec, size_t DEBUG_ONLY(bytes)) {
++                 // Ensures to stop the execution once the connection has been stopped.
++                 if (_done) {
++                   return;
++--- a/LibCarla/source/carla/streaming/detail/tcp/Server.cpp
+++++ b/LibCarla/source/carla/streaming/detail/tcp/Server.cpp
++@@ -39,9 +39,9 @@
++       }
++     };
++ 
++-    _acceptor.async_accept(session->_socket, [=](error_code ec) {
+++    _acceptor.async_accept(session->_socket, [=, this](error_code ec) {
++       // Handle query and open a new session immediately.
++-      boost::asio::post(_io_context, [=]() { handle_query(ec); });
+++      boost::asio::post(_io_context, [=, this]() { handle_query(ec); });
++       OpenSession(timeout, on_opened, on_closed);
++     });
++   }
++--- a/LibCarla/source/carla/streaming/detail/tcp/Server.h
+++++ b/LibCarla/source/carla/streaming/detail/tcp/Server.h
++@@ -46,7 +46,7 @@
++     /// is closed.
++     template <typename FunctorT1, typename FunctorT2>
++     void Listen(FunctorT1 on_session_opened, FunctorT2 on_session_closed) {
++-      boost::asio::post(_io_context, [=]() {
+++      boost::asio::post(_io_context, [=, this]() {
++         OpenSession(
++             _timeout,
++             std::move(on_session_opened),
++--- a/LibCarla/source/carla/streaming/detail/tcp/ServerSession.cpp
+++++ b/LibCarla/source/carla/streaming/detail/tcp/ServerSession.cpp
++@@ -51,7 +51,7 @@
++ 
++     StartTimer();
++     auto self = shared_from_this(); // To keep myself alive.
++-    boost::asio::post(_strand, [=]() {
+++    boost::asio::post(_strand, [=, this]() {
++ 
++       auto handle_query = [this, self, callback=std::move(on_opened)](
++           const boost::system::error_code &ec,
++@@ -59,7 +59,7 @@
++         if (!ec) {
++           DEBUG_ASSERT_EQ(bytes_received, sizeof(_stream_id));
++           log_debug("session", _session_id, "for stream", _stream_id, " started");
++-          boost::asio::post(_strand.context(), [=]() { callback(self); });
+++          boost::asio::post(_strand.context(), [=, this]() { callback(self); });
++         } else {
++           log_error("session", _session_id, ": error retrieving stream id :", ec.message());
++           CloseNow(ec);
+diff --git a/misc/conan/carla0916/patches/003_fix_result_of_cxx20.patch b/misc/conan/carla0916/patches/003_fix_result_of_cxx20.patch
+new file mode 100644
+index 0000000..7d58283
+--- /dev/null
++++ b/misc/conan/carla0916/patches/003_fix_result_of_cxx20.patch
+@@ -0,0 +1,11 @@
++--- a/LibCarla/source/carla/ThreadPool.h
+++++ b/LibCarla/source/carla/ThreadPool.h
++@@ -37,7 +37,7 @@
++     }
++ 
++     /// Post a task to the pool.
++-    template <typename FunctorT, typename ResultT = typename std::result_of<FunctorT()>::type>
+++    template <typename FunctorT, typename ResultT = typename std::invoke_result<FunctorT>::type>
++     std::future<ResultT> Post(FunctorT &&functor) {
++       auto task = std::packaged_task<ResultT()>(std::forward<FunctorT>(functor));
++       auto future = task.get_future();

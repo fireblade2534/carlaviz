@@ -1,0 +1,23 @@
+FROM ubuntu:22.04 AS backend
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates git make g++-11 python3-pip cmake \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip3 install --no-cache-dir conan==1.66.0
+RUN conan remote add gitlab https://gitlab.com/api/v4/projects/44861904/packages/conan
+
+COPY misc/cicd/conan/gcc11 /home/carlaviz/profiles/gcc11
+COPY misc/conan/carla0916 /home/carlaviz/carla0916
+RUN conan create /home/carlaviz/carla0916 \
+    -pr /home/carlaviz/profiles/gcc11 -s build_type=Release --build=missing
+
+COPY backend /home/carlaviz/backend
+WORKDIR /home/carlaviz/backend/build
+RUN conan install -pr /home/carlaviz/profiles/gcc11 \
+    --build=missing -s build_type=Release ..
+RUN conan build ..
+
+# Reuse the published frontend and replace its C++ backend with the matching one.
+FROM mjxu96/carlaviz:0.9.15
+COPY --from=backend /home/carlaviz/backend/build/Release/src/backend \
+    /home/carlaviz/backend/bin/backend
